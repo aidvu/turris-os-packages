@@ -179,7 +179,7 @@ reflash () {
 
 reflash
 
-rainbow all enable 0xffff00
+rainbow all enable ffff00
 
 while true; do
 	sleep 10
