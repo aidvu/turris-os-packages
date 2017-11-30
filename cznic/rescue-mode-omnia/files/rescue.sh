@@ -92,6 +92,7 @@ umount_fs() {
 
 do_warning() {
     umount_fs $SRCFS_MOUNTPOINT
+    bash &
     while true; do
         rainbow all enable blue
         sleep 1
@@ -102,6 +103,7 @@ do_warning() {
 
 do_panic() {
     umount_fs $SRCFS_MOUNTPOINT
+    bash &
     while true; do
         rainbow all enable red
         sleep 1
@@ -138,38 +140,33 @@ reflash () {
     done
 
     if [ -n "${IMG}" ]; then
-        if [ -r "${IMG}"/rootfs.img ]; then
-            if [ -r "${IMG}"/rootfs.img.md5 ]; then
-                cd "${IMG}"
+        cd "${IMG}"
+        if [ -r rootfs.img ]; then
+            if [ -r rootfs.img.md5 ]; then
                 md5sum -c rootfs.img.md5 || do_warning
-                cd
             fi
-            dd if="${IMG}"/rootfs.img of=$DEV bs=1M || do_warning
+            dd if=rootfs.img of=$DEV bs=1M || do_warning
         fi
-    if [ -r "${IMG}"/uboot.img ]; then
-          if [ -r "${IMG}"/uboot.img.md5 ]; then
-              cd "${IMG}"
-              md5sum -c uboot.img.md5 || do_warning
-              cd
-          fi
-          mtd erase /dev/mtd0
-          mtd write "${IMG}"/uboot.img /dev/mtd0 || do_warning
-    fi
-    if [ -r "${IMG}"/rescue.img ]; then
-          if [ -r "${IMG}"/rescue.img.md5 ]; then
-              cd "${IMG}"
-              md5sum -c rescue.img.md5 || do_warning
-              cd
-           fi
-           mtd erase /dev/mtd1
-           mtd write "${IMG}"/rescue.img /dev/mtd1 || do_warning
+        if [ -r uboot.img ]; then
+            if [ -r uboot.img.md5 ]; then
+                md5sum -c uboot.img.md5 || do_warning
+            fi
+            mtd erase /dev/mtd0
+            mtd write uboot.img /dev/mtd0 || do_panic
         fi
-        umount_fs $SRCFS_MOUNTPOINT
-    sync
+        if [ -r rescue.img ]; then
+            if [ -r rescue.img.md5 ]; then
+                md5sum -c rescue.img.md5 || do_warning
+            fi
+             mtd erase /dev/mtd1
+             mtd write rescue.img /dev/mtd1 || do_panic
+        fi
+        sync
     else
         d "No medkit image found. Please reboot."
         do_warning
     fi
+    umount_fs $SRCFS_MOUNTPOINT
 
     d "Reflash succeeded."
 }
