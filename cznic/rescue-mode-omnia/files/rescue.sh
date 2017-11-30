@@ -82,7 +82,7 @@ umount_fs() {
 	d "umount_fs $1"
 	$BIN_UMOUNT $1
 	if $BIN_MOUNT | $BIN_GREP -E "on $1 ">/dev/null; then
-		$BIN_UMOUNT -f $1
+		$BIN_UMOUNT -fl $1
 	fi
 	if $BIN_MOUNT | $BIN_GREP -E "on $1 ">/dev/null; then
 		$BIN_MOUNT -o remount,ro $1
@@ -123,8 +123,8 @@ reflash () {
 				continue
 			fi
 			d "Searching for ${SRCFS_MOUNTPOINT}/${MEDKIT_FILENAME} on $dev"
-			IMG="$(ls -1 ${SRCFS_MOUNTPOINT}/${MEDKIT_FILENAME} | sort | tail -n 1)"
-			if [ -n "${IMG}" ] && [ -f "${IMG}" ]; then
+			IMG="$(ls -1d ${SRCFS_MOUNTPOINT}/to_flash | sort | tail -n 1)"
+			if [ -n "${IMG}" ] && [ -d "${SRCFS_MOUNTPOINT}/to_flash" ]; then
 				d "Found medkit file $IMG on device $dev"
 				break
 			else
@@ -138,49 +138,34 @@ reflash () {
 	done
 
 	if [ -n "${IMG}" ]; then
-		if [ -r "${IMG}".md5 ]; then
-			cd "$(dirname "${IMG}")"
-			md5sum -c "$(basename "${IMG}")".md5 || do_warning
-			cd
+    if [ -r "${IMG}"/rootfs.img ]; then
+		  if [ -r "${IMG}"/rootfs.img.md5 ]; then
+				cd "${IMG}"
+          md5sum -c rootfs.img.md5 || do_warning
+				cd
+      fi
+      dd if="${IMG}"/rootfs.img of=$DEV bs=1M || do_warning
 		fi
-		if [ -r "${IMG}".sha256 ]; then
-			cd "$(dirname "${IMG}")"
-			sha256sum -c "$(basename "${IMG}")".sha256 || do_warning
-			cd
+    if [ -r "${IMG}"/uboot.img ]; then
+		  if [ -r "${IMG}"/uboot.img.md5 ]; then
+				cd "${IMG}"
+          md5sum -c uboot.img.md5 || do_warning
+				cd
+      fi
+			mtd erase /dev/mtd0
+			mtd write uboot.img /dev/mtd0 || do_warning
 		fi
-		$BIN_DD if=/dev/zero of=$DEV bs=512 count=1
-		$BIN_FDISK $DEV <<EOF
-n
-p
-1
-
-
-p
-w
-EOF
-
-		$BIN_BLOCKDEV --rereadpt $DEV
-		$BIN_MDEV
-		$BIN_SLEEP 1
-		if ! [ -e $FS_DEV ]; then
-			e "Partition $FS_DEV missing. Exit."
-			umount_fs $SRCFS_MOUNTPOINT
-			exit 23
+    if [ -r "${IMG}"/rescue.img ]; then
+		  if [ -r "${IMG}"/rescue.img.md5 ]; then
+				cd "${IMG}"
+          md5sum -c rescue.img.md5 || do_warning
+				cd
+      fi
+			mtd erase /dev/mtd1
+			mtd write rescue.img /dev/mtd1 || do_warning
 		fi
-		$BIN_MKFS -M -f $FS_DEV || do_panic
-		mount_fs $FS_DEV $FS_MOUNTPOINT
-		$BIN_BTRFS subvolume create "${FS_MOUNTPOINT}/@"
-		ROOTDIR="${FS_MOUNTPOINT}/@"
-		d "Rootdir is $ROOTDIR"
-		cd $ROOTDIR
-		$BIN_TAR zxf $IMG || do_panic
-		RD=`$BIN_DATE '+%s' -r sbin/init`
-		cd /
-		$BIN_BTRFS subvolume snapshot "${FS_MOUNTPOINT}/@" "${FS_MOUNTPOINT}/@factory"
-		umount_fs $FS_MOUNTPOINT
 		umount_fs $SRCFS_MOUNTPOINT
-
-		check_reset_clock $RD
+    sync
 	else
 		d "No medkit image found. Please reboot."
 		do_warning
@@ -189,77 +174,16 @@ EOF
 	d "Reflash succeeded."
 }
 
-check_reset_clock () {
-	D=${1:-`$BIN_DATE '+%s' -d 201606010000`}
-	CD=`$BIN_DATE '+%s'`
-
-	# reset clock to the date in param if it is before the 
-	# system time or behind for more than 360 days from the system time
-	if [ $D -gt $CD ] || [ $(( $D + 31104000 )) -lt $CD ]; then
-		d "Resetting clock to $D ."
-		$BIN_DATE "@${D}"
-		$BIN_HWCLOCK -w
-	else
-		d "Current time `$BIN_DATE` seems to be OK. Keeping it."
-	fi
-}
-
-rescue_shell() {
-	rainbow all ff0066 auto
-	d "Configuring switch LAN4 <-> eth0..."
-	swconfig dev switch0 vlan 1 set ports '4 5'
-	d "Setting IP..."
-	ip link set dev eth0 up
-	ip addr add dev eth0 192.168.1.1/24
-	d "Mounting /dev/pts..."
-	mount -t devpts devpts /dev/pts
-	d "Starting dropbear..."
-	rm -f /etc/dropbear/*
-	dropbear -R -B -E
-	d "Spawning local shell. Exit to reboot..."
-	setsid cttyhack sh
-}
-
-
 
 # main
-MODE=`$BIN_GREP -E "omniarescue=[0-9]+" /proc/cmdline | $BIN_SED -r 's/.*omniarescue=([0-9]+)(\s.*|)$/\1/'`
-if [ -z "${MODE}" ]; then
-  MODE=0
-fi
-d "MODE=$MODE"
 
-if [ -z "${MODE}" ]; then
-	e "Invalid (empty) mode."
-	exit -10
-fi
+reflash
 
-case "$MODE" in
-	0)
-		e "Invalid mode 0 - normal boot expected. Exit to shell."
-		exit 11
-		;;
-	1)
-		d "Mode: Rollback to the last snapshot..."
-		schnapps rollback
-		;;
+rainbow all enable 0xffff00
 
-	2)
-		d "Mode: Rollback to first snapshot..."
-		schnapps rollback factory
-		;;
-	3)
-		d "Mode: Reflash..."
-		reflash
-		;;
-	4)
-		d "Mode: Rescue shell..."
-		rescue_shell
-		;;
-	*)
-		e "Invalid mode $MODE. Exit to shell."
-		exit 12
-esac
+while true; do
+	sleep 10
+done
 
 exit 0
 
