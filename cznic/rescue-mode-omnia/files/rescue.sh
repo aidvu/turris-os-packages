@@ -166,6 +166,7 @@ reflash () {
         d "No medkit image found. Please reboot."
         do_warning
     fi
+    cd
     umount_fs $SRCFS_MOUNTPOINT
 
     d "Reflash succeeded."
@@ -176,10 +177,11 @@ reflash () {
 
 reflash
 
-rainbow all enable ffff00
-
 while true; do
-    sleep 10
+        rainbow all enable ffff00
+        sleep 1
+        rainbow all disable
+        sleep 1
 done
 
 exit 0
